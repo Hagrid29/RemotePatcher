@@ -18,10 +18,18 @@
     <ClCompile Include="RemotePatcher.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="syscalls_mem.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ntddk.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="syscalls_mem.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="syscalls_mem_-asm.x64.asm">
+      <Filter>Source Files</Filter>
+    </MASM>
   </ItemGroup>
 </Project>

